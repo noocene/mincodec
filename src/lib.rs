@@ -7,6 +7,7 @@ extern crate alloc;
 pub mod allocated;
 
 pub mod array;
+pub mod empty;
 pub mod option;
 pub mod primitive;
 pub mod result;
