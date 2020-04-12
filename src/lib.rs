@@ -14,16 +14,14 @@ pub mod tuple;
 
 #[doc(hidden)]
 pub use bitbuf::Insufficient;
-use bitbuf::{BitBuf, BitBufMut, BitSlice, BitSliceMut, Drain, Fill};
+use bitbuf::{BitBuf, BitBufMut, BitSlice, BitSliceMut};
 use core::{
     future::Future,
-    marker::{PhantomData, PhantomPinned},
-    mem::{replace, size_of},
+    mem::replace,
     pin::Pin,
     task::{Context, Poll},
 };
 use core_futures_io::{AsyncRead, AsyncWrite};
-use void::Void;
 
 #[macro_export]
 macro_rules! sufficient {
