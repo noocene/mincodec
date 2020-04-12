@@ -113,6 +113,7 @@ impl MinCodecWrite for String {
     }
 }
 
+#[derive(Debug)]
 enum VecDeserializeState {
     Vlq,
     Reading,
@@ -122,6 +123,7 @@ enum VecDeserializeState {
 pub struct VecDeserialize<T: MinCodecRead> {
     state: VecDeserializeState,
     vlq: AsyncReadVlq,
+    len: usize,
     deser: T::Deserialize,
     data: Vec<T>,
 }
@@ -186,6 +188,7 @@ where
             state: VecDeserializeState::Vlq,
             vlq: Vlq::async_read(),
             deser: T::deserialize(),
+            len: 0,
             data: Vec::new(),
         }
     }
@@ -241,20 +244,61 @@ where
                         .try_into()
                         .map_err(|_| VecReadError::TooLong));
                     this.data.reserve_exact(len);
+                    this.len = len;
                     this.state = VecDeserializeState::Reading;
                 }
                 VecDeserializeState::Reading => {
-                    this.data.push(buf_try!(buf_ready!(
-                        Pin::new(&mut this.deser).poll_deserialize(ctx, buf)
-                    )));
-                    if this.data.len() == this.data.capacity() {
+                    if this.data.len() == this.len {
                         this.state = VecDeserializeState::Complete;
                         return buf_ok!(replace(&mut this.data, Vec::new()));
                     }
+                    this.data.push(buf_try!(buf_ready!(
+                        Pin::new(&mut this.deser).poll_deserialize(ctx, buf)
+                    )));
                     this.deser = T::deserialize();
                 }
                 VecDeserializeState::Complete => panic!("Vec deserialize polled after completion"),
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test::round_trip;
+    use core::iter::repeat;
+
+    #[test]
+    fn empty_string() {
+        round_trip("".to_owned());
+    }
+
+    #[test]
+    fn non_empty_strings() {
+        for len in 0..100 {
+            round_trip(repeat('a').take(len * 10 + 1).collect::<String>());
+        }
+    }
+
+    #[test]
+    fn empty_vec() {
+        round_trip(Vec::<String>::new());
+        round_trip(Vec::<u8>::new());
+        round_trip(Vec::<()>::new());
+        round_trip(Vec::<Vec<bool>>::new());
+    }
+
+    #[test]
+    fn non_empty_vecs() {
+        for len in 0..10 {
+            round_trip(
+                repeat("hello".to_owned())
+                    .take(len * 2 + 1)
+                    .collect::<Vec<_>>(),
+            );
+            round_trip(repeat(10u8).take(len * 10 + 1).collect::<Vec<_>>());
+            round_trip(repeat(()).take(len * 10 + 1).collect::<Vec<_>>());
+            round_trip(repeat(false).take(len * 10 + 1).collect::<Vec<_>>());
         }
     }
 }

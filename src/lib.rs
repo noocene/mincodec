@@ -512,3 +512,30 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use core::fmt::Debug;
+    use futures::executor::block_on;
+
+    pub fn round_trip<T: MinCodec + Clone + PartialEq + Debug>(item: T)
+    where
+        T::Serialize: Unpin,
+        T::Deserialize: Unpin,
+        <T::Serialize as Serialize>::Error: Debug,
+        <T::Deserialize as Deserialize>::Error: Debug,
+    {
+        block_on(async move {
+            let mut buffer = [0u8; 1024];
+            item.clone()
+                .write_immediate(&mut BitSliceMut::new(&mut buffer))
+                .await
+                .unwrap();
+            let deser = T::read_immediate(&mut BitSlice::new(&buffer))
+                .await
+                .unwrap();
+            assert_eq!(deser, item);
+        });
+    }
+}

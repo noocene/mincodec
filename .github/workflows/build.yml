@@ -21,6 +21,8 @@ jobs:
       run: cargo build --no-default-features --features alloc
     - name: Build for no_std
       run: cargo build --no-default-features
+    - name: Run tests
+      run: cargo test
     - name: Build documentation
       run: |
         cargo rustdoc
