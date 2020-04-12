@@ -1,0 +1,34 @@
+name: Build 
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        rustup default stable
+        rustup update
+    - name: Build
+      run: cargo build
+    - name: Build with alloc
+      run: cargo build --no-default-features --features alloc
+    - name: Build for no_std
+      run: cargo build --no-default-features
+    - name: Build documentation
+      run: |
+        cargo rustdoc
+        echo "<!DOCTYPE html><html><head><script>window.location.replace(\"/mincodec/mincodec\");</script></head></html>" > target/doc/index.html
+    - name: Deploy documentation
+      uses: JamesIves/github-pages-deploy-action@2.0.3
+      env:
+        ACCESS_TOKEN: ${{ secrets.GH_PAT }}
+        BASE_BRANCH: master
+        BRANCH: gh-pages
+        FOLDER: target/doc

@@ -1,0 +1,1 @@
+[Documentation](https://noocene.github.io/mincodec)
