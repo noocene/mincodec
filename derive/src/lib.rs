@@ -231,15 +231,16 @@ fn derive(mut s: Structure) -> TokenStream {
             "derived Serialize for {} polled after completion",
             s.ast().ident
         );
+        let vis = &s.ast().vis;
         let mut stream = s.gen_impl(quote! {
             extern crate mincodec;
 
-            pub enum _DERIVE_Serialize {
+            #vis enum _DERIVE_Serialize {
                 #(#serialize_variants,)*
             }
 
             #[derive(Debug)]
-            pub enum _DERIVE_Error {
+            #vis enum _DERIVE_Error {
                 #(#[allow(non_camel_case_types)] #serialize_error_variants,)*
             }
 
@@ -284,12 +285,12 @@ fn derive(mut s: Structure) -> TokenStream {
         stream.extend(s.gen_impl(quote! {
             extern crate mincodec;
 
-            pub enum _DERIVE_Deserialize {
+            #vis enum _DERIVE_Deserialize {
                 #(#deserialize_variants,)*
             }
 
             #[derive(Debug)]
-            pub enum _DERIVE_Error {
+            #vis enum _DERIVE_Error {
                 #(#[allow(non_camel_case_types)] #deserialize_error_variants,)*
             }
 
