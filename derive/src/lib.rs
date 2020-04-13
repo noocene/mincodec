@@ -39,17 +39,29 @@ fn derive(mut s: Structure) -> TokenStream {
         let mut deserialize_variants = vec![];
         let mut bits = None;
         let mut first_field = None;
+        let mut size = 0;
+        let mut i_ty = quote! { u8 };
         s.add_bounds(AddBounds::Fields);
         let determinant = if len > 1 {
             let b = (len as f64).log2().ceil() as usize;
+            if b > 8 {
+                if b > 16 {
+                    size = 2;
+                    i_ty = quote! { u32 };
+                } else {
+                    size = 1;
+                    i_ty = quote! { u16 };
+                }
+            }
+            let bytes = b / 8 + 1;
             first_field = Some(
-                quote! { _DERIVE_Deserialize::_DERIVE_Determinant(mincodec::bitbuf::CappedFill::new([0u8], #b).unwrap()) },
+                quote! { _DERIVE_Deserialize::_DERIVE_Determinant(mincodec::bitbuf::CappedFill::new([0u8; #bytes], #b).unwrap()) },
             );
             deserialize_variants
-                .push(quote! { _DERIVE_Determinant(mincodec::bitbuf::CappedFill<[u8; 1]>) });
+                .push(quote! { _DERIVE_Determinant(mincodec::bitbuf::CappedFill<[u8; #bytes]>) });
             bits = Some(b);
             quote! {
-                mincodec::bitbuf::CappedDrain<[u8; 1]>,
+                mincodec::bitbuf::CappedDrain<[u8; #bytes]>,
             }
         } else {
             TokenStream::new()
@@ -67,7 +79,15 @@ fn derive(mut s: Structure) -> TokenStream {
                         *idx += 1;
                     }
                 });
-                quote! { mincodec::bitbuf::CappedDrain::new([(#idx as u8).to_be_bytes()[0].reverse_bits()], #bits).unwrap(),}
+                quote! {
+                    {
+                        let mut data = (#idx as #i_ty).to_le_bytes();
+                        for byte in &mut data {
+                            *byte = byte.reverse_bits();
+                        }
+                        mincodec::bitbuf::CappedDrain::new(data, #bits).unwrap()
+                    }
+                }
             } else {
                 TokenStream::new()
             };
@@ -86,18 +106,18 @@ fn derive(mut s: Structure) -> TokenStream {
                 deserialize_error_variants.push(quote! {
                     #ident(<<#ty as mincodec::MinCodecRead>::Deserialize as mincodec::Deserialize>::Error)
                 });
-                let deser_idx = idx as u8;
-                let ser_idx = idx as u8 + if bits.is_some() { 1 } else { 0 };
+                let deser_idx = idx;
+                let ser_idx = idx + if bits.is_some() { 1 } else { 0 };
                 let b_ser = format_ident!("_{}", ser_idx);
                 let b_deser = format_ident!("_{}", deser_idx);
                 ser_state_arms.push(quote! {
-                    #ser_idx => {
+                    #ser_idx as #i_ty => {
                         mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
                         *idx += 1;
                     }
                 });
                 deser_state_arms.push(quote! {
-                    #deser_idx => {
+                    #deser_idx as #i_ty => {
                         mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
                         *idx += 1;
                     }
@@ -109,13 +129,13 @@ fn derive(mut s: Structure) -> TokenStream {
                 fields.push(quote! { #pat.serialize() });
             }
             let pat = variant.pat();
-            let det_idx = idx as u8;
+            let det_idx = idx;
             let ident = variant.ast().ident;
             if (!first_field.is_some()) && idx == 0 {
                 let mut binding_tys = vec![];
                 if variant.bindings().len() != 0 {
                     binding_tys.push(quote! {
-                        0u8
+                        0 as #i_ty
                     });
                 }
                 for binding in variant.bindings() {
@@ -186,11 +206,33 @@ fn derive(mut s: Structure) -> TokenStream {
                 serialize_variants.push(quote! {
                     #ident(#determinant)
                 });
-                determinant_arms.push(quote! {
-                    #det_idx => {
-                        ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                match size {
+                    0 => {
+                        let det_idx = det_idx as u8;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                            }
+                        });
                     }
-                });
+                    1 => {
+                        let det_idx = det_idx as u16;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                            }
+                        });
+                    }
+                    2 => {
+                        let det_idx = det_idx as u32;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                            }
+                        });
+                    }
+                    _ => panic!(),
+                };
                 if bits.is_some() {
                     ser_arms.push(quote! {
                         _DERIVE_Serialize::#ident(_0) => {
@@ -269,10 +311,15 @@ fn derive(mut s: Structure) -> TokenStream {
             }
         });
         let det_arm = if bits.is_some() {
+            let bytes = bits.unwrap() / 8 + 1;
             quote! {
                 _DERIVE_Deserialize::_DERIVE_Determinant(determinant) => {
                     mincodec::sufficient!(determinant.fill_from(&mut buf));
-                    let determinant = u8::from_be_bytes([::core::mem::replace(determinant, mincodec::bitbuf::CappedFill::new([0u8], 0).unwrap()).into_inner()[0].reverse_bits()]);
+                    let mut data = ::core::mem::replace(determinant, mincodec::bitbuf::CappedFill::new([0u8; #bytes], 0).unwrap()).into_inner();
+                    for byte in &mut data {
+                        *byte = byte.reverse_bits();
+                    }
+                    let determinant = <#i_ty>::from_le_bytes(data);
                     match determinant {
                         #(#determinant_arms)*
                         _ => panic!("invalid determinant")
