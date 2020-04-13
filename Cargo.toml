@@ -13,8 +13,10 @@ bitbuf = { git = "https://github.com/noocene/bitbuf" }
 bitbuf-vlq = { git = "https://github.com/noocene/bitbuf-vlq", optional = true }
 core-futures-io = { git = "https://github.com/noocene/core-futures-io", default-features = false }
 arrayvec = { version = "0.5.1", default-features = false }
-futures = "0.3.4"
 derive = { path = "derive" }
+
+[dev-dependencies]
+futures = "0.3.4"
 
 [features]
 std = ["alloc", "void/std", "core-futures-io/std"]

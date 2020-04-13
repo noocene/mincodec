@@ -417,9 +417,9 @@ where
                     let re = this.cursor & 7;
                     this.cursor /= 8;
                     if this.done {
-                        l = this.buffer[this.cursor + 1];
-                    } else {
                         this.cursor += 1;
+                    } else {
+                        l = this.buffer[this.cursor + 1];
                     }
                     match Pin::new(&mut this.writer).poll_write(ctx, &this.buffer[..this.cursor]) {
                         Poll::Pending => return Poll::Pending,
