@@ -70,7 +70,7 @@ macro_rules! impl_primitives {
                 fn poll_deserialize<B: BitBuf>(
                     mut self: Pin<&mut Self>,
                     _: &mut Context,
-                    buf: &mut B,
+                    buf: B,
                 ) -> BufPoll<Result<Self::Target, Self::Error>> {
                     sufficient!(self.data.as_mut().unwrap().fill_from(buf));
                     buf_ok!(<$ty>::from_be_bytes(
@@ -85,7 +85,7 @@ macro_rules! impl_primitives {
                 fn poll_serialize<B: BitBufMut>(
                     mut self: Pin<&mut Self>,
                     _: &mut Context,
-                    buf: &mut B,
+                    buf: B,
                 ) -> BufPoll<Result<(), Self::Error>> {
                     sufficient!(self.data.as_mut().unwrap().drain_into(buf));
                     self.data.take().unwrap();
@@ -128,7 +128,7 @@ impl Deserialize for BoolDeserialize {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        buf: &mut B,
+        mut buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_ok!(sufficient!(buf.read_bool()))
     }
@@ -143,7 +143,7 @@ impl Serialize for BoolSerialize {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        buf: &mut B,
+        mut buf: B,
     ) -> BufPoll<Result<(), Self::Error>> {
         buf_ok!(sufficient!(buf.write_bool(self.0)))
     }
@@ -186,7 +186,7 @@ impl Deserialize for UnitCodec<()> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_ok!(())
     }
@@ -199,7 +199,7 @@ impl Deserialize for UnitCodec<PhantomPinned> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_ok!(PhantomPinned)
     }
@@ -212,7 +212,7 @@ impl<T> Deserialize for UnitCodec<[T; 0]> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_ok!([])
     }
@@ -225,7 +225,7 @@ impl<T: ?Sized> Deserialize for UnitCodec<PhantomData<T>> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_ok!(PhantomData)
     }
@@ -237,7 +237,7 @@ impl<T: Unit> Serialize for UnitCodec<T> {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<(), Self::Error>> {
         buf_ok!(())
     }

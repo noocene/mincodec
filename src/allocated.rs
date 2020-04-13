@@ -48,20 +48,20 @@ impl Deserialize for StringDeserialize {
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         _: &mut Context,
-        buf: &mut B,
+        mut buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         loop {
             match this.state {
                 StringDeserializeState::Vlq => {
-                    let len: usize = buf_try!(sufficient!(this.vlq.poll_read(buf))
+                    let len: usize = buf_try!(sufficient!(this.vlq.poll_read(&mut buf))
                         .try_into()
                         .map_err(|_| StringReadError::TooLong));
                     this.data = Fill::new(vec![0; len]);
                     this.state = StringDeserializeState::Reading;
                 }
                 StringDeserializeState::Reading => {
-                    sufficient!(this.data.fill_from(buf));
+                    sufficient!(this.data.fill_from(&mut buf));
                     this.state = StringDeserializeState::Complete;
                     let data = replace(&mut this.data, Fill::new(Vec::new())).into_inner();
                     return BufPoll::Ready(String::from_utf8(data).map_err(StringReadError::Utf8));
@@ -90,7 +90,7 @@ impl Serialize for BytesSerialize {
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         _: &mut Context,
-        buf: &mut B,
+        buf: B,
     ) -> BufPoll<Result<(), Self::Error>> {
         sufficient!(self.0.drain_into(buf));
         buf_ok!(())
@@ -151,13 +151,13 @@ where
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        mut buf: B,
     ) -> BufPoll<Result<(), <Self as Serialize>::Error>> {
         let this = &mut *self;
         loop {
             match this.state {
                 VecSerializeState::Vlq => {
-                    sufficient!(this.vlq.drain_into(buf));
+                    sufficient!(this.vlq.drain_into(&mut buf));
                     this.state = VecSerializeState::Writing;
                 }
                 VecSerializeState::Writing => {
@@ -168,7 +168,7 @@ where
                         return buf_ok!(());
                     }
                     buf_try!(buf_ready!(
-                        Pin::new(this.ser.as_mut().unwrap()).poll_serialize(ctx, buf)
+                        Pin::new(this.ser.as_mut().unwrap()).poll_serialize(ctx, &mut buf)
                     ));
                 }
                 VecSerializeState::Complete => panic!("Vec serialize polled after completion"),
@@ -234,13 +234,13 @@ where
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        mut buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         loop {
             match this.state {
                 VecDeserializeState::Vlq => {
-                    let len: usize = buf_try!(sufficient!(this.vlq.poll_read(buf))
+                    let len: usize = buf_try!(sufficient!(this.vlq.poll_read(&mut buf))
                         .try_into()
                         .map_err(|_| VecReadError::TooLong));
                     this.data.reserve_exact(len);
@@ -253,7 +253,7 @@ where
                         return buf_ok!(replace(&mut this.data, Vec::new()));
                     }
                     this.data.push(buf_try!(buf_ready!(
-                        Pin::new(&mut this.deser).poll_deserialize(ctx, buf)
+                        Pin::new(&mut this.deser).poll_deserialize(ctx, &mut buf)
                     )));
                     this.deser = T::deserialize();
                 }

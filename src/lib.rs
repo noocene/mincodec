@@ -13,8 +13,11 @@ pub mod primitive;
 pub mod result;
 pub mod tuple;
 
+pub use derive::MinCodec;
+
 #[doc(hidden)]
-pub use bitbuf::Insufficient;
+pub use bitbuf;
+
 use bitbuf::{BitBuf, BitBufMut, BitSlice, BitSliceMut};
 use core::{
     future::Future,
@@ -24,13 +27,16 @@ use core::{
 };
 use core_futures_io::{AsyncRead, AsyncWrite};
 
+#[doc(hidden)]
+pub use void::Void;
+
 #[macro_export]
 macro_rules! sufficient {
     ($e:expr $(,)?) => {
         match $e {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
-                let _: $crate::Insufficient = e;
+                let _: $crate::bitbuf::Insufficient = e;
                 return $crate::BufPoll::Insufficient;
             }
         }
@@ -79,7 +85,7 @@ pub trait Serialize {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        buf: B,
     ) -> BufPoll<Result<(), Self::Error>>;
 }
 
@@ -90,7 +96,7 @@ pub trait Deserialize: Sized {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>>;
 }
 
@@ -106,17 +112,71 @@ pub trait MinCodecRead: Sized {
     fn deserialize() -> Self::Deserialize;
 }
 
+pub enum OptionDeserialize<T: MinCodecRead> {
+    Deserialize(T::Deserialize),
+    Done(T),
+}
+
+impl<T: MinCodecRead> OptionDeserialize<T>
+where
+    T: Unpin,
+    T::Deserialize: Unpin,
+{
+    pub fn poll_deserialize<B: BitBuf>(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: B,
+    ) -> BufPoll<Result<(), <T::Deserialize as Deserialize>::Error>> {
+        let this = &mut *self;
+        loop {
+            match this {
+                OptionDeserialize::Deserialize(deser) => {
+                    let item = buf_try!(buf_ready!(Pin::new(deser).poll_deserialize(ctx, buf)));
+                    replace(this, OptionDeserialize::Done(item));
+                    return buf_ok!(());
+                }
+                OptionDeserialize::Done(_) => panic!("OptionDeserialize polled after completion"),
+            }
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        if let OptionDeserialize::Done(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn take(&mut self) -> Option<T> {
+        if let OptionDeserialize::Done(_) = self {
+            let value = replace(self, OptionDeserialize::Deserialize(T::deserialize()));
+            if let OptionDeserialize::Done(item) = value {
+                return Some(item);
+            }
+            panic!()
+        } else {
+            None
+        }
+    }
+
+    pub fn new() -> Self {
+        OptionDeserialize::Deserialize(T::deserialize())
+    }
+}
+
 #[derive(Debug)]
 pub enum ReadImmediateError<T> {
     Insufficient,
     Deserialize(T),
 }
 
-pub struct ReadImmediate<'a, T: MinCodecRead, B: BitBuf>(T::Deserialize, &'a mut B, bool);
+pub struct ReadImmediate<T: MinCodecRead, B: BitBuf>(T::Deserialize, B, bool);
 
-impl<'a, T: MinCodecRead, B: BitBuf> Future for ReadImmediate<'a, T, B>
+impl<T: MinCodecRead, B: BitBuf> Future for ReadImmediate<T, B>
 where
     T::Deserialize: Unpin,
+    B: Unpin,
 {
     type Output = Result<T, ReadImmediateError<<T::Deserialize as Deserialize>::Error>>;
 
@@ -125,7 +185,7 @@ where
         if this.2 {
             panic!("ReadImmediate polled after completion")
         }
-        match Pin::new(&mut this.0).poll_deserialize(ctx, this.1) {
+        match Pin::new(&mut this.0).poll_deserialize(ctx, &mut this.1) {
             BufPoll::Pending => Poll::Pending,
             BufPoll::Insufficient => {
                 this.2 = true;
@@ -145,11 +205,12 @@ pub enum WriteImmediateError<T> {
     Serialize(T),
 }
 
-pub struct WriteImmediate<'a, T: MinCodecWrite, B: BitBufMut>(T::Serialize, &'a mut B, bool);
+pub struct WriteImmediate<T: MinCodecWrite, B: BitBufMut>(T::Serialize, B, bool);
 
-impl<'a, T: MinCodecWrite, B: BitBufMut> Future for WriteImmediate<'a, T, B>
+impl<T: MinCodecWrite, B: BitBufMut> Future for WriteImmediate<T, B>
 where
     T::Serialize: Unpin,
+    B: Unpin,
 {
     type Output = Result<usize, WriteImmediateError<<T::Serialize as Serialize>::Error>>;
 
@@ -158,7 +219,7 @@ where
         if this.2 {
             panic!("WriteImmediate polled after completion")
         }
-        match Pin::new(&mut this.0).poll_serialize(ctx, this.1) {
+        match Pin::new(&mut this.0).poll_serialize(ctx, &mut this.1) {
             BufPoll::Pending => Poll::Pending,
             BufPoll::Insufficient => {
                 this.2 = true;
@@ -176,12 +237,12 @@ where
 }
 
 pub trait MinCodecReadExt: MinCodecRead {
-    fn read_immediate<'a, B: BitBuf>(buf: &'a mut B) -> ReadImmediate<'a, Self, B>;
+    fn read_immediate<B: BitBuf>(buf: B) -> ReadImmediate<Self, B>;
     fn read_async_bytes<R: AsyncRead>(buf: R) -> AsyncReader<R, Self>;
 }
 
 impl<T: MinCodecRead> MinCodecReadExt for T {
-    fn read_immediate<'a, B: BitBuf>(buf: &'a mut B) -> ReadImmediate<'a, Self, B> {
+    fn read_immediate<B: BitBuf>(buf: B) -> ReadImmediate<Self, B> {
         ReadImmediate(T::deserialize(), buf, false)
     }
     fn read_async_bytes<R: AsyncRead>(buf: R) -> AsyncReader<R, Self> {
@@ -190,12 +251,12 @@ impl<T: MinCodecRead> MinCodecReadExt for T {
 }
 
 pub trait MinCodecWriteExt: MinCodecWrite {
-    fn write_immediate<'a, B: BitBufMut>(self, buf: &'a mut B) -> WriteImmediate<'a, Self, B>;
+    fn write_immediate<B: BitBufMut>(self, buf: B) -> WriteImmediate<Self, B>;
     fn write_async_bytes<W: AsyncWrite>(self, buf: W) -> AsyncWriter<W, Self>;
 }
 
 impl<T: MinCodecWrite> MinCodecWriteExt for T {
-    fn write_immediate<'a, B: BitBufMut>(self, buf: &'a mut B) -> WriteImmediate<'a, Self, B> {
+    fn write_immediate<B: BitBufMut>(self, buf: B) -> WriteImmediate<Self, B> {
         WriteImmediate(self.serialize(), buf, false)
     }
     fn write_async_bytes<W: AsyncWrite>(self, buf: W) -> AsyncWriter<W, Self> {
@@ -442,7 +503,7 @@ impl<E, T: Unpin + Deserialize, U, F: Unpin + FnMut(T::Target) -> Result<U, E>> 
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         buf_ok!(buf_try!((this.map)(buf_try!(buf_ready!(Pin::new(
@@ -490,7 +551,7 @@ where
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut B,
+        buf: B,
     ) -> BufPoll<Result<(), Self::Error>> {
         let this = &mut *self;
         match &mut this.state {

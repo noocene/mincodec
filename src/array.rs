@@ -24,7 +24,7 @@ macro_rules! array_impl {
                 fn poll_deserialize<B: BitBuf>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    buf: &mut B,
+                    mut buf: B,
                 ) -> BufPoll<Result<Self::Target, Self::Error>> {
                     let this = &mut *self;
                     if this.data.len() >= $len {
@@ -32,7 +32,7 @@ macro_rules! array_impl {
                     }
                     loop {
                         let item = buf_try!(buf_ready!(
-                            Pin::new(&mut this.deser).poll_deserialize(ctx, buf)
+                            Pin::new(&mut this.deser).poll_deserialize(ctx, &mut buf)
                         ));
                         this.data.push(item);
                         if this.data.len() < this.data.capacity() {
@@ -73,7 +73,7 @@ macro_rules! array_impl {
                 fn poll_serialize<B: BitBufMut>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    buf: &mut B,
+                    mut buf: B,
                 ) -> BufPoll<Result<(), Self::Error>> {
                     let this = &mut *self;
                     loop {
@@ -82,7 +82,7 @@ macro_rules! array_impl {
                         } else {
                             return buf_ok!(());
                         }
-                        buf_try!(buf_ready!(Pin::new(this.ser.as_mut().unwrap()).poll_serialize(ctx, buf)));
+                        buf_try!(buf_ready!(Pin::new(this.ser.as_mut().unwrap()).poll_serialize(ctx, &mut buf)));
                     }
                 }
             }

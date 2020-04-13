@@ -5,6 +5,12 @@ use void::Void;
 
 pub struct EmptyCodec<T>(PhantomData<T>);
 
+impl<T> EmptyCodec<T> {
+    pub fn new() -> Self {
+        EmptyCodec(PhantomData)
+    }
+}
+
 #[derive(Debug)]
 pub struct Empty;
 
@@ -15,7 +21,7 @@ impl<T> Deserialize for EmptyCodec<T> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_try!(Err(Empty))
     }
@@ -27,7 +33,7 @@ impl<T> Serialize for EmptyCodec<T> {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: &mut B,
+        _: B,
     ) -> BufPoll<Result<(), Self::Error>> {
         panic!("attempted to serialize empty type")
     }

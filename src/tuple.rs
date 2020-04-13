@@ -1,6 +1,6 @@
 use crate::{
     buf_ok, buf_ready, buf_try, BufPoll, Deserialize, MapDeserialize, MapSerialize, MinCodecRead,
-    MinCodecWrite, Serialize,
+    MinCodecWrite, OptionDeserialize, Serialize,
 };
 use bitbuf::{BitBuf, BitBufMut};
 use core::{pin::Pin, task::Context};
@@ -51,8 +51,7 @@ macro_rules! tuple_impls {
             #[allow(non_snake_case)]
             pub struct $deser<$($name: MinCodecRead),+> {
                 index: u8,
-                data: Option<($(Option<$name>,)+)>,
-                $($name: $name::Deserialize),+
+                data: ($(OptionDeserialize<$name>,)+),
             }
 
             impl<$($name),+> Serialize for $ser<$($name,)+>
@@ -67,14 +66,14 @@ macro_rules! tuple_impls {
                 fn poll_serialize<B: BitBufMut>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    buf: &mut B,
+                    mut buf: B,
                 ) -> BufPoll<Result<(), Self::Error>> {
                     let this = &mut *self;
                     loop {
                         match this.index {
                             $(
                                 $n => {
-                                    buf_try!(buf_ready!(Pin::new(&mut this.$name).poll_serialize(ctx, buf))
+                                    buf_try!(buf_ready!(Pin::new(&mut this.$name).poll_serialize(ctx, &mut buf))
                                         .map_err($sere::$name));
                                     this.index += 1;
                                 }
@@ -102,24 +101,20 @@ macro_rules! tuple_impls {
                 fn poll_deserialize<B: BitBuf>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    buf: &mut B,
+                    mut buf: B,
                 ) -> BufPoll<Result<($($name,)+), Self::Error>> {
                     let this = &mut *self;
                     loop {
                         match this.index {
                             $(
                                 $n => {
-                                    let item = buf_try!(buf_ready!(Pin::new(&mut this.$name).poll_deserialize(ctx, buf))
-                                        .map_err($sere::$name));
-                                    this.data.as_mut().unwrap().$n = Some(item);
+                                    buf_try!(buf_ready!(Pin::new(&mut this.data.$n).poll_deserialize(ctx, &mut buf)).map_err($sere::$name));
                                     this.index += 1;
                                 }
                             )+
                             a if a == $len => {
                                 this.index += 1;
-                                #[allow(non_snake_case)]
-                                let ($($name,)+) = this.data.take().unwrap();
-                                return buf_ok!(($($name.unwrap(),)+));
+                                return buf_ok!(($(this.data.$n.take().unwrap(),)+));
                             },
                             _ => panic!("tuple serialize polled after completion"),
                         }
@@ -153,8 +148,7 @@ macro_rules! tuple_impls {
                 fn deserialize() -> Self::Deserialize {
                     $deser {
                         index: 0,
-                        $($name: $name::deserialize(),)+
-                        data: Some(($(None::<$name>,)+)),
+                        data: ($(OptionDeserialize::<$name>::new(),)+),
                     }
                 }
             }

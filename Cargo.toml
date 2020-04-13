@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Izzy Swart <zenerboson@gmail.com>"]
 edition = "2018"
 
+[workspace]
+members = ["./derive"]
+
 [dependencies]
 void = { version = "1.0.2", default-features = false }
 bitbuf = { git = "https://github.com/noocene/bitbuf" }
@@ -11,7 +14,7 @@ bitbuf-vlq = { git = "https://github.com/noocene/bitbuf-vlq", optional = true }
 core-futures-io = { git = "https://github.com/noocene/core-futures-io", default-features = false }
 arrayvec = { version = "0.5.1", default-features = false }
 futures = "0.3.4"
-
+derive = { path = "derive" }
 
 [features]
 std = ["alloc", "void/std", "core-futures-io/std"]
