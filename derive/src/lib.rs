@@ -49,6 +49,9 @@ fn derive(mut s: Structure) -> TokenStream {
                     size = 2;
                     i_ty = quote! { u32 };
                 } else {
+                    if b > 32 {
+                        panic!("too many variants")
+                    }
                     size = 1;
                     i_ty = quote! { u16 };
                 }
@@ -86,12 +89,26 @@ fn derive(mut s: Structure) -> TokenStream {
                             *byte = byte.reverse_bits();
                         }
                         mincodec::bitbuf::CappedDrain::new(data, #bits).unwrap()
-                    }
+                    },
                 }
             } else {
                 TokenStream::new()
             };
             let mut ty_deser = vec![];
+            let bl = variant.bindings().len();
+            let bsize;
+            let b_ty = if bl < 2usize.pow(8) {
+                bsize = 0;
+                quote! { u8 }
+            } else if bl < 2usize.pow(16) {
+                bsize = 1;
+                quote! { u16 }
+            } else if bl < 2usize.pow(32) {
+                bsize = 2;
+                quote! { u32 }
+            } else {
+                panic!("too many bindings")
+            };
             for (idx, binding) in variant.bindings().iter().enumerate() {
                 let ident = if let Some(name) = &binding.ast().ident {
                     name.to_string()
@@ -110,18 +127,57 @@ fn derive(mut s: Structure) -> TokenStream {
                 let ser_idx = idx + if bits.is_some() { 1 } else { 0 };
                 let b_ser = format_ident!("_{}", ser_idx);
                 let b_deser = format_ident!("_{}", deser_idx);
-                ser_state_arms.push(quote! {
-                    #ser_idx as #i_ty => {
-                        mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
-                        *idx += 1;
+                match bsize {
+                    0 => {
+                        let ser_idx = ser_idx as u8;
+                        let deser_idx = deser_idx as u8;
+                        ser_state_arms.push(quote! {
+                            #ser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
+                        deser_state_arms.push(quote! {
+                            #deser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
                     }
-                });
-                deser_state_arms.push(quote! {
-                    #deser_idx as #i_ty => {
-                        mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
-                        *idx += 1;
+                    1 => {
+                        let ser_idx = ser_idx as u16;
+                        let deser_idx = deser_idx as u16;
+                        ser_state_arms.push(quote! {
+                            #ser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
+                        deser_state_arms.push(quote! {
+                            #deser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
                     }
-                });
+                    2 => {
+                        let ser_idx = ser_idx as u32;
+                        let deser_idx = deser_idx as u32;
+                        ser_state_arms.push(quote! {
+                            #ser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
+                        deser_state_arms.push(quote! {
+                            #deser_idx => {
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                *idx += 1;
+                            }
+                        });
+                    }
+                    _ => panic!(),
+                };
                 ty_deser.push(quote! { mincodec::OptionDeserialize::<#ty>::new() });
                 serialize_bindings.push(quote! {<#ty as mincodec::MinCodecWrite>::Serialize});
                 deserialize_bindings.push(quote! { mincodec::OptionDeserialize<#ty> });
@@ -135,7 +191,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 let mut binding_tys = vec![];
                 if variant.bindings().len() != 0 {
                     binding_tys.push(quote! {
-                        0 as #i_ty
+                        0 as #b_ty
                     });
                 }
                 for binding in variant.bindings() {
@@ -150,15 +206,37 @@ fn derive(mut s: Structure) -> TokenStream {
             }
             if !serialize_bindings.is_empty() {
                 deserialize_variants.push(quote! {
-                    #ident(u8, #(#deserialize_bindings,)*)
+                    #ident(#b_ty, #(#deserialize_bindings,)*)
                 });
-                determinant_arms.push(quote! {
-                    #det_idx => {
-                        ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0u8, #(#ty_deser,)*));
+                match size {
+                    0 => {
+                        let det_idx = det_idx as u8;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                            }
+                        });
                     }
-                });
+                    1 => {
+                        let det_idx = det_idx as u16;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                            }
+                        });
+                    }
+                    2 => {
+                        let det_idx = det_idx as u32;
+                        determinant_arms.push(quote! {
+                            #det_idx => {
+                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                            }
+                        });
+                    }
+                    _ => panic!(),
+                };
                 serialize_variants.push(quote! {
-                    #ident(u8, #determinant #(#serialize_bindings,)*)
+                    #ident(#b_ty, #determinant #(#serialize_bindings,)*)
                 });
                 let ser_binding_names = (0..(serialize_bindings.len()
                     + if bits.is_some() { 1 } else { 0 }))
@@ -196,7 +274,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 });
                 arms.push(quote! {
                     #pat => {
-                        _DERIVE_Serialize::#ident(0u8, #drain #(#fields,)*)
+                        _DERIVE_Serialize::#ident(0 as #b_ty, #drain #(#fields,)*)
                     }
                 });
             } else {
