@@ -13,9 +13,12 @@ use bitbuf_vlq::{AsyncReadVlq, Vlq};
 use core::{convert::TryInto, mem::replace, pin::Pin, task::Context};
 use void::Void;
 
+/// Wrapper around errors that occur while deserializing a `String`
 #[derive(Debug)]
 pub enum StringReadError {
+    /// Indicates that the deserialized string is longer than the system pointer size
     TooLong,
+    /// Wraps a `FromUtf8Error` produced while validating the deserialized data as UTF-8
     Utf8(FromUtf8Error),
 }
 
@@ -25,6 +28,11 @@ enum StringDeserializeState {
     Complete,
 }
 
+/// Read codec for the `String` type.
+///
+/// This is packed with maximal efficiency but, as `String` is a dynamically sized type,
+/// it is also prefixed with a variable-length quantity provided by [bitbuf-vlq](https://github.com/noocene/bitbuf-vlq) that
+/// stores the length in a compact representation wasting one bit per byte (i.e. values less than `2^7` occupy one byte, values greater than `2^7 - 1` but less than `2^14` occupy two bytes, and so forth up to 9 bytes for `core::u64::MAX`).
 pub struct StringDeserialize {
     state: StringDeserializeState,
     vlq: AsyncReadVlq,
@@ -82,6 +90,13 @@ impl MinCodecRead for String {
     }
 }
 
+/// Generalized provider for serializing a dynamically sized bytevec
+///
+/// Used in serialization of `String`.
+///
+/// This is packed with maximal efficiency but, as Vec is a dynamically sized type,
+/// it is also prefixed with a variable-length quantity provided by [bitbuf-vlq](https://github.com/noocene/bitbuf-vlq) that
+/// stores the length in a compact representation wasting one bit per byte (i.e. values less than `2^7` occupy one byte, values greater than `2^7 - 1` but less than `2^14` occupy two bytes, and so forth up to 9 bytes for `core::u64::MAX`).
 pub struct BytesSerialize(Drain<Vec<u8>>);
 
 impl Serialize for BytesSerialize {
@@ -120,6 +135,11 @@ enum VecDeserializeState {
     Complete,
 }
 
+/// Read side of a codec for the `Vec` type
+///
+/// This is packed with maximal efficiency but, as Vec is a dynamically sized type,
+/// it is also prefixed with a variable-length quantity provided by [bitbuf-vlq](https://github.com/noocene/bitbuf-vlq) that
+/// stores the length in a compact representation wasting one bit per byte (i.e. values less than `2^7` occupy one byte, values greater than `2^7 - 1` but less than `2^14` occupy two bytes, and so forth up to 9 bytes for `core::u64::MAX`).
 pub struct VecDeserialize<T: MinCodecRead> {
     state: VecDeserializeState,
     vlq: AsyncReadVlq,
@@ -134,6 +154,11 @@ enum VecSerializeState {
     Complete,
 }
 
+/// Write side of a codec for the `Vec` type
+///
+/// This is packed with maximal efficiency but, as Vec is a dynamically sized type,
+/// it is also prefixed with a variable-length quantity provided by [bitbuf-vlq](https://github.com/noocene/bitbuf-vlq) that
+/// stores the length in a compact representation wasting one bit per byte (i.e. values less than `2^7` occupy one byte, values greater than `2^7 - 1` but less than `2^14` occupy two bytes, and so forth up to 9 bytes for `core::u64::MAX`).
 pub struct VecSerialize<T: MinCodecWrite> {
     ser: Option<T::Serialize>,
     state: VecSerializeState,
@@ -212,9 +237,12 @@ where
     }
 }
 
+/// Wrapper around errors that occur while deserializing a `Vec`
 #[derive(Debug)]
 pub enum VecReadError<T> {
+    /// Indicates that the deserialized vector is longer than the system pointer size
     TooLong,
+    /// Encapsulates an error that occured while deserializing the underlying item type
     Item(T),
 }
 

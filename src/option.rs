@@ -11,6 +11,9 @@ enum OptionSerializeState {
     Complete,
 }
 
+/// Write side of a codec for the `Option` type
+///
+/// `Some(T)` is one bit larger than `T` and `None` occupies a single bit
 pub struct OptionSerialize<T: MinCodecWrite> {
     ser: Option<T::Serialize>,
     state: OptionSerializeState,
@@ -73,6 +76,9 @@ enum OptionDeserializeState {
     Complete,
 }
 
+/// Read-side of a codec for the `Option` type
+///
+/// `Some(T)` is one bit larger than `T` and `None` occupies a single bit
 pub struct OptionDeserialize<T: MinCodecRead> {
     deser: T::Deserialize,
     state: OptionDeserializeState,

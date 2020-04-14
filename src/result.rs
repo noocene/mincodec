@@ -12,15 +12,24 @@ enum ResultDeserializeState {
     Complete,
 }
 
+/// Read side of a codec for the `Result` type
+///
+/// `Ok(T)` is one bit larger than `T` and `Err(E)` is one bit larger than `E`
 pub struct ResultDeserialize<T: MinCodecRead, U: MinCodecRead> {
     deser_u: U::Deserialize,
     deser_t: T::Deserialize,
     state: ResultDeserializeState,
 }
 
+/// An error wrapper for `Result` codecs
+///
+/// The `Result` deserialization or serialization process can return an error for either type used.
+/// This encapsulates both into a single type.
 #[derive(Debug)]
 pub enum ResultError<T, U> {
+    /// Error occured on the success variant
     Ok(T),
+    /// Error occured on the error variant
     Err(U),
 }
 
@@ -96,6 +105,9 @@ enum ResultSerializeState {
     Complete,
 }
 
+/// Write side of a codec for the `Result` type
+///
+/// `Ok(T)` is one bit larger than `T` and `Err(E)` is one bit larger than `E`
 pub struct ResultSerialize<T: MinCodecWrite, U: MinCodecWrite> {
     ser_t: Option<T::Serialize>,
     ser_u: Option<U::Serialize>,
