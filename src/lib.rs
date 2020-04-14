@@ -28,6 +28,9 @@ pub mod tuple;
 pub use derive::MinCodec;
 
 #[doc(hidden)]
+pub use derive::FieldDebug;
+
+#[doc(hidden)]
 pub use bitbuf;
 
 use bitbuf::{BitBuf, BitBufMut, BitSlice, BitSliceMut};

@@ -4,6 +4,30 @@ use syn::{parse_quote, Token, WhereClause, WherePredicate};
 use synstructure::{decl_derive, AddBounds, BindStyle, Structure};
 
 decl_derive!([MinCodec] => derive);
+decl_derive!([FieldDebug] => derive_debug);
+
+fn derive_debug(mut s: Structure) -> TokenStream {
+    s.add_bounds(AddBounds::Fields);
+    let mut format = vec![];
+    for variant in s.variants() {
+        format.push(variant.each(|binding| {
+            let pat = format!("{}({{:?}})", variant.ast().ident);
+            let binding = &binding.binding;
+            quote! {
+                write!(f, #pat, #binding)
+            }
+        }));
+    }
+    s.gen_impl(quote! {
+        gen impl ::core::fmt::Debug for @Self {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match self {
+                    #(#format)*
+                }
+            }
+        }
+    })
+}
 
 fn derive(mut s: Structure) -> TokenStream {
     let len = s.variants().len();
@@ -389,6 +413,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 #(#serialize_variants,)*
             }
 
+            #[derive(::mincodec::FieldDebug)]
             #vis enum _DERIVE_Error #impl_gen #where_gen {
                 #(#[allow(non_camel_case_types)] #serialize_error_variants,)*
             }
@@ -443,6 +468,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 #(#deserialize_variants,)*
             }
 
+            #[derive(::mincodec::FieldDebug)]
             #vis enum _DERIVE_Error #impl_gen #where_gen {
                 #(#[allow(non_camel_case_types)] #deserialize_error_variants,)*
             }
