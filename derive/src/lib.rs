@@ -18,11 +18,17 @@ fn derive_debug(mut s: Structure) -> TokenStream {
             }
         }));
     }
+    let fallback = if s.variants().len() == 0 {
+        quote! { _ => panic!() }
+    } else {
+        TokenStream::new()
+    };
     s.gen_impl(quote! {
         gen impl ::core::fmt::Debug for @Self {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match self {
                     #(#format)*
+                    #fallback
                 }
             }
         }
