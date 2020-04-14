@@ -44,12 +44,12 @@ fn derive(mut s: Structure) -> TokenStream {
         s.add_bounds(AddBounds::Fields);
         let determinant = if len > 1 {
             let b = (len as f64).log2().ceil() as usize;
-            if b > 8 {
-                if b > 16 {
+            if b >= 8 {
+                if b >= 16 {
                     size = 2;
                     i_ty = quote! { u32 };
                 } else {
-                    if b > 32 {
+                    if b >= 32 {
                         panic!("too many variants")
                     }
                     size = 1;
