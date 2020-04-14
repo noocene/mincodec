@@ -360,6 +360,7 @@ impl<T: MinCodecWrite + MinCodecRead> MinCodec for T {}
 enum AsyncReaderState {
     Reading,
     Deserialize,
+    Complete,
 }
 
 const ASYNC_READER_BUF_SIZE: usize = 1024;
@@ -392,6 +393,10 @@ pub struct AsyncWriter<T: AsyncWrite, U: MinCodecWrite> {
     state: AsyncWriterState,
 }
 
+/// Error returned when attempting to reset an incomplete AsyncReader
+#[derive(Debug)]
+pub struct Incomplete;
+
 impl<T: AsyncRead, U: MinCodecRead> AsyncReader<T, U> {
     /// Creates a new `AsyncReader` from the provided `AsyncRead`
     pub fn new(reader: T) -> Self {
@@ -402,6 +407,33 @@ impl<T: AsyncRead, U: MinCodecRead> AsyncReader<T, U> {
             cursor: 0,
             deserializer: U::deserialize(),
             state: AsyncReaderState::Deserialize,
+        }
+    }
+
+    /// Begins the deserialization process again, retaining residual data. This fails if the current item deserialization is not complete.
+    pub fn reset(&mut self) -> Result<(), Incomplete> {
+        if let AsyncReaderState::Complete = self.state {
+            self.deserializer = U::deserialize();
+            self.state = AsyncReaderState::Deserialize;
+            Ok(())
+        } else {
+            Err(Incomplete)
+        }
+    }
+
+    /// Begins the deserialization process again with a new type, retaining residual data. This fails if the current item deserialization is not complete.
+    pub fn reset_as<S: MinCodecRead>(self) -> Result<AsyncReader<T, S>, Incomplete> {
+        if let AsyncReaderState::Complete = self.state {
+            Ok(AsyncReader {
+                reader: self.reader,
+                state: AsyncReaderState::Deserialize,
+                deserializer: S::deserialize(),
+                cursor: self.cursor,
+                buffer: self.buffer,
+                last_byte: self.last_byte,
+            })
+        } else {
+            Err(Incomplete)
         }
     }
 }
@@ -448,7 +480,7 @@ where
                         BufPoll::Ready(item) => {
                             this.cursor += buf.len();
                             this.cursor = ((this.cursor / 8) + 1) * 8;
-                            this.deserializer = U::deserialize();
+                            this.state = AsyncReaderState::Complete;
                             Poll::Ready(item.map_err(AsyncReaderError::Deserialize))
                         }
                         BufPoll::Insufficient => {
@@ -487,6 +519,7 @@ where
                         }),
                     };
                 }
+                AsyncReaderState::Complete => panic!("AsyncReader polled after completion"),
             }
         }
     }
