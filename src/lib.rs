@@ -454,6 +454,18 @@ impl<T: AsyncWrite, U: MinCodecWrite> AsyncWriter<T, U> {
         }
     }
 
+    /// Creates a new `AsyncWriter` from the provided `AsyncWrite`. This writer will be immediately complete upon creation and will never send data.
+    pub fn complete(writer: T, data: U) -> Self {
+        AsyncWriter {
+            writer,
+            buffer: [0u8; ASYNC_WRITER_BUF_SIZE],
+            cursor: 0,
+            done: true,
+            serializer: data.serialize(),
+            state: AsyncWriterState::Complete,
+        }
+    }
+
     /// Extracts the underlying stream from the writer
     pub fn into_inner(self) -> T {
         self.writer
