@@ -360,7 +360,6 @@ impl<T: MinCodecWrite + MinCodecRead> MinCodec for T {}
 enum AsyncReaderState {
     Reading,
     Deserialize,
-    Complete,
 }
 
 const ASYNC_READER_BUF_SIZE: usize = 1024;
@@ -447,7 +446,8 @@ where
                     return match poll {
                         BufPoll::Pending => Poll::Pending,
                         BufPoll::Ready(item) => {
-                            this.state = AsyncReaderState::Complete;
+                            this.cursor += buf.len();
+                            this.deserializer = U::deserialize();
                             Poll::Ready(item.map_err(AsyncReaderError::Deserialize))
                         }
                         BufPoll::Insufficient => {
@@ -486,7 +486,6 @@ where
                         }),
                     };
                 }
-                AsyncReaderState::Complete => panic!("AsyncReader polled after completion"),
             }
         }
     }
