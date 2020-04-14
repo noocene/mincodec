@@ -396,7 +396,7 @@ pub struct AsyncWriter<T: AsyncWrite, U: MinCodecWrite> {
     state: AsyncWriterState,
 }
 
-/// Error returned when attempting to reset an incomplete AsyncReader
+/// Error returned when attempting to reset an incomplete streaming wrapper
 #[derive(Debug)]
 pub struct Incomplete;
 
@@ -451,6 +451,32 @@ impl<T: AsyncWrite, U: MinCodecWrite> AsyncWriter<T, U> {
             done: false,
             serializer: data.serialize(),
             state: AsyncWriterState::Serialize,
+        }
+    }
+
+    /// Extracts the underlying stream from the writer
+    pub fn into_inner(self) -> T {
+        self.writer
+    }
+
+    /// Begins the serialization process again with a new item. This fails if the current item serialization is not complete.
+    pub fn reset(&mut self, item: U) -> Result<(), Incomplete> {
+        if let AsyncWriterState::Complete = self.state {
+            self.done = false;
+            self.state = AsyncWriterState::Serialize;
+            self.serializer = item.serialize();
+            Ok(())
+        } else {
+            Err(Incomplete)
+        }
+    }
+
+    /// Checks if the current serialization is complete
+    pub fn is_done(&self) -> bool {
+        if let AsyncWriterState::Complete = self.state {
+            true
+        } else {
+            false
         }
     }
 }
