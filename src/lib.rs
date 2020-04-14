@@ -447,6 +447,7 @@ where
                         BufPoll::Pending => Poll::Pending,
                         BufPoll::Ready(item) => {
                             this.cursor += buf.len();
+                            this.cursor = ((this.cursor / 8) + 1) * 8;
                             this.deserializer = U::deserialize();
                             Poll::Ready(item.map_err(AsyncReaderError::Deserialize))
                         }
