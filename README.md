@@ -37,6 +37,17 @@ pub enum OneVariant {
 }
 ```
 
+#### features
+- True frameless design (no headers/prefixing/etc. in multi-item streams)
+- Perfect incremental deserialization (intermediate buffers are filled per-bit as data becomes available), no cycles are wasted re-deserializing data
+- `#![no_std]` support using [core-futures-io](https://github.com/noocene/core-futures-io)
+- Compatibility with both `tokio` and `async_std` using compatibility adapters from core-futures-io
+- Bit-level serialization using [bitbuf](https://github.com/noocene/bitbuf) facilitates the extreme spatial efficiency displayed above
+- Efficient size prefixing for DSTs using [bitbuf-vlq](https://github.com/noocene/bitbuf-vlq)
+- Asynchronicity permits deserialization of data as it becomes available over transport, spreading the time cost of deserialization or serialization over the transport's bandwidth domain
+- Asynchronicity permits dependency of serialized/deserialized types on futures, the dual of transport-side asynchronicity
+- `serde`-style derive macro for straightforward implementation with support for generic parametrization
+
 #### async_std TcpStream example
 ```Rust
 use async_std::net::{TcpStream, TcpListener};
