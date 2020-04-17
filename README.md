@@ -6,20 +6,20 @@ Highly spatially efficient serialization format supporting `#[no_std]` and makin
 
 #### comparison
 All sizes listed in bits
-|Type | Value | mincodec | CBOR | bincode | MessagePack|
-|--- | --- | --- | --- | --- | ---|
-|`Option<bool>`|`Some(true)`|2|8|16|8|
-|`Option<bool>`|`Some(false)`|2|8|16|8|
-|`Option<bool>`|`None`|1|8|8|8|
-|`String`|`"hello"`|48|48|104|48|
-|`Vec<bool>`|`[true, false, true]`|11|32|88|32|
-|`(bool, u8)`|`(false, 3)`|9|24|16|24|
-|`CustomOption<bool>`|`Some(true)`|2|56|40|24|
-|`()`|`()`|0|8|0|8|
-|`[String; 0]`|`[]`|0|8|0|8|
-|`[bool; 2]`|`[true, false]`|2|24|16|24|
-|`Bit`|`High`|1|40|32|24|
-|`OneVariant`|`Variant`|0|64|32|24|
+|Type | Value | mincodec | CBOR | bincode | MessagePack | Postcard|
+|--- | --- | --- | --- | --- | --- | ---|
+|`Option<bool>`|`Some(true)`|2|8|16|8|16|
+|`Option<bool>`|`Some(false)`|2|8|16|8|16|
+|`Option<bool>`|`None`|1|8|8|8|8|
+|`String`|`"hello"`|48|48|104|48|48|
+|`Vec<bool>`|`[true, false, true]`|11|32|88|32|32|
+|`(bool, u8)`|`(false, 3)`|9|24|16|24|16|
+|`CustomOption<bool>`|`Some(true)`|2|56|40|24|16|
+|`()`|`()`|0|8|0|8|0|
+|`[String; 0]`|`[]`|0|8|0|8|0|
+|`[bool; 2]`|`[true, false]`|2|24|16|24|16|
+|`Bit`|`High`|1|40|32|24|8|
+|`OneVariant`|`Variant`|0|64|32|24|8|
 
 ```Rust
 pub enum CustomOption<T> {
