@@ -519,13 +519,13 @@ where
                     return match poll {
                         BufPoll::Pending => Poll::Pending,
                         BufPoll::Ready(item) => {
-                            this.cursor += buf.len();
-                            this.cursor = ((this.cursor / 8) + 1) * 8;
+                            this.cursor = buf.len();
+                            this.cursor = this.cursor + 7 & !7;
                             this.state = AsyncReaderState::Complete;
                             Poll::Ready(item.map_err(AsyncReaderError::Deserialize))
                         }
                         BufPoll::Insufficient => {
-                            this.cursor += buf.len();
+                            this.cursor = buf.len();
                             this.state = AsyncReaderState::Reading;
                             continue;
                         }
@@ -589,10 +589,12 @@ where
                     let mut l = 0u8;
                     let re = this.cursor & 7;
                     this.cursor /= 8;
-                    if this.done {
-                        this.cursor += 1;
-                    } else {
-                        l = this.buffer[this.cursor + 1];
+                    if re != 0 {
+                        if this.done {
+                            this.cursor += 1;
+                        } else {
+                            l = this.buffer[this.cursor + 1];
+                        }
                     }
                     match Pin::new(&mut this.writer).poll_write(ctx, &this.buffer[..this.cursor]) {
                         Poll::Pending => return Poll::Pending,
@@ -689,12 +691,13 @@ impl<E, T: Unpin + Deserialize, U, F: Unpin + FnMut(T::Target) -> Result<U, E>> 
         buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
-        buf_ok!(buf_try!((this.map)(buf_try!(buf_ready!(Pin::new(
-            &mut this.deser
-        )
-        .poll_deserialize(ctx, buf))
-        .map_err(MapDeserializeError::Deserialize)))
-        .map_err(MapDeserializeError::Map)))
+        buf_ok!(buf_try!(
+            (this.map)(buf_try!(
+                buf_ready!(Pin::new(&mut this.deser).poll_deserialize(ctx, buf))
+                    .map_err(MapDeserializeError::Deserialize)
+            ))
+            .map_err(MapDeserializeError::Map)
+        ))
     }
 }
 
@@ -759,8 +762,10 @@ where
                 }
             }
             MapSerializeState::Serialize(ser) => {
-                buf_try!(buf_ready!(Pin::new(ser).poll_serialize(ctx, buf))
-                    .map_err(MapSerializeError::Serialize));
+                buf_try!(
+                    buf_ready!(Pin::new(ser).poll_serialize(ctx, buf))
+                        .map_err(MapSerializeError::Serialize)
+                );
                 this.state = MapSerializeState::Complete;
                 buf_ok!(())
             }
