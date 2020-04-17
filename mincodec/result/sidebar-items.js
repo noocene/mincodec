@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ResultError","An error wrapper for `Result` codecs"]],"struct":[["ResultDeserialize","Read side of a codec for the `Result` type"],["ResultSerialize","Write side of a codec for the `Result` type"]]});
