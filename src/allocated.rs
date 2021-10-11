@@ -1,9 +1,10 @@
 use crate::{
-    buf_ok, buf_ready, buf_try, sufficient, BufPoll, Deserialize, MinCodecRead, MinCodecWrite,
-    Serialize,
+    buf_ok, buf_ready, buf_try, sufficient, BufPoll, Deserialize, MapDeserialize, MapSerialize,
+    MinCodecRead, MinCodecWrite, Serialize,
 };
 use alloc::{
     borrow::ToOwned,
+    boxed::Box,
     string::{FromUtf8Error, String},
     vec,
     vec::{IntoIter, Vec},
@@ -288,6 +289,34 @@ where
                 VecDeserializeState::Complete => panic!("Vec deserialize polled after completion"),
             }
         }
+    }
+}
+
+impl<T: MinCodecRead> MinCodecRead for Box<T>
+where
+    T::Deserialize: Unpin,
+{
+    type Deserialize = MapDeserialize<Void, T::Deserialize, Box<T>, fn(T) -> Result<Box<T>, Void>>;
+
+    fn deserialize() -> Self::Deserialize {
+        fn map<T>(item: T) -> Result<Box<T>, Void> {
+            Ok(Box::new(item))
+        }
+        MapDeserialize::new(map)
+    }
+}
+
+impl<T: MinCodecWrite> MinCodecWrite for Box<T>
+where
+    T::Serialize: Unpin,
+{
+    type Serialize = MapSerialize<T, Void>;
+
+    fn serialize(self) -> Self::Serialize {
+        fn map<T>(item: Box<T>) -> Result<T, Void> {
+            Ok(*item)
+        }
+        MapSerialize::new(self, map)
     }
 }
 

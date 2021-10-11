@@ -197,7 +197,7 @@ where
             match this {
                 OptionDeserialize::Deserialize(deser) => {
                     let item = buf_try!(buf_ready!(Pin::new(deser).poll_deserialize(ctx, buf)));
-                    replace(this, OptionDeserialize::Done(item));
+                    *this = OptionDeserialize::Done(item);
                     return buf_ok!(());
                 }
                 OptionDeserialize::Done(_) => panic!("OptionDeserialize polled after completion"),
@@ -691,13 +691,12 @@ impl<E, T: Unpin + Deserialize, U, F: Unpin + FnMut(T::Target) -> Result<U, E>> 
         buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
-        buf_ok!(buf_try!(
-            (this.map)(buf_try!(
-                buf_ready!(Pin::new(&mut this.deser).poll_deserialize(ctx, buf))
-                    .map_err(MapDeserializeError::Deserialize)
-            ))
-            .map_err(MapDeserializeError::Map)
-        ))
+        buf_ok!(buf_try!((this.map)(buf_try!(buf_ready!(Pin::new(
+            &mut this.deser
+        )
+        .poll_deserialize(ctx, buf))
+        .map_err(MapDeserializeError::Deserialize)))
+        .map_err(MapDeserializeError::Map)))
     }
 }
 
@@ -762,10 +761,8 @@ where
                 }
             }
             MapSerializeState::Serialize(ser) => {
-                buf_try!(
-                    buf_ready!(Pin::new(ser).poll_serialize(ctx, buf))
-                        .map_err(MapSerializeError::Serialize)
-                );
+                buf_try!(buf_ready!(Pin::new(ser).poll_serialize(ctx, buf))
+                    .map_err(MapSerializeError::Serialize));
                 this.state = MapSerializeState::Complete;
                 buf_ok!(())
             }

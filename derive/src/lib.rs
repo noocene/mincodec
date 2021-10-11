@@ -261,7 +261,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u8;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                                *this = _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*);
                             }
                         });
                     }
@@ -269,7 +269,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u16;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                                *this = _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*);
                             }
                         });
                     }
@@ -277,7 +277,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u32;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*));
+                                *this = _DERIVE_Deserialize::#ident(0 as #b_ty, #(#ty_deser,)*);
                             }
                         });
                     }
@@ -298,7 +298,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         match idx {
                             #(#ser_state_arms)*
                             _ => {
-                                ::core::mem::replace(this, _DERIVE_Serialize::__DERIVE_Complete);
+                                *this = _DERIVE_Serialize::__DERIVE_Complete;
                                 return mincodec::buf_ok!(());
                             }
                         }
@@ -337,7 +337,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u8;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                                *this = _DERIVE_Deserialize::#ident();
                             }
                         });
                     }
@@ -345,7 +345,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u16;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                                *this = _DERIVE_Deserialize::#ident();
                             }
                         });
                     }
@@ -353,7 +353,7 @@ fn derive(mut s: Structure) -> TokenStream {
                         let det_idx = det_idx as u32;
                         determinant_arms.push(quote! {
                             #det_idx => {
-                                ::core::mem::replace(this, _DERIVE_Deserialize::#ident());
+                                *this = _DERIVE_Deserialize::#ident();
                             }
                         });
                     }
@@ -363,14 +363,14 @@ fn derive(mut s: Structure) -> TokenStream {
                     ser_arms.push(quote! {
                         _DERIVE_Serialize::#ident(_0) => {
                             mincodec::sufficient!(_0.drain_into(&mut buf));
-                            ::core::mem::replace(this, _DERIVE_Serialize::__DERIVE_Complete);
+                            *this = _DERIVE_Serialize::__DERIVE_Complete;
                             return mincodec::buf_ok!(());
                         }
                     });
                 } else {
                     ser_arms.push(quote! {
                         _DERIVE_Serialize::#ident() => {
-                            ::core::mem::replace(this, _DERIVE_Serialize::__DERIVE_Complete);
+                            *this = _DERIVE_Serialize::__DERIVE_Complete;
                             return mincodec::buf_ok!(());
                         }
                     });
