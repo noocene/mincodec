@@ -1,13 +1,44 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_quote, Token, WhereClause, WherePredicate};
+use syn::{
+    parenthesized, parse::Parse, parse2, parse_quote, punctuated::Punctuated, Token, Type,
+    WhereClause,
+};
 use synstructure::{decl_derive, AddBounds, BindStyle, Structure};
 
-decl_derive!([MinCodec] => derive);
+struct TypeList {
+    _parens: syn::token::Paren,
+    list: Punctuated<Type, Token![,]>,
+}
+
+impl Parse for TypeList {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let list;
+        Ok(TypeList {
+            _parens: parenthesized!(list in input),
+            list: Punctuated::parse_terminated(&list)?,
+        })
+    }
+}
+
+decl_derive!([MinCodec, attributes(bounds)] => derive);
 decl_derive!([FieldDebug] => derive_debug);
 
 fn derive_debug(mut s: Structure) -> TokenStream {
-    s.add_bounds(AddBounds::Fields);
+    let mut where_clause: WhereClause = parse_quote!(where);
+
+    add_bounds(&s, |ty| {
+        where_clause.predicates.push(parse_quote! {
+            #ty: ::core::fmt::Debug
+        });
+    });
+
+    s.add_bounds(if where_clause.predicates.is_empty() {
+        AddBounds::Fields
+    } else {
+        AddBounds::None
+    });
+
     let mut format = vec![];
     for variant in s.variants() {
         format.push(variant.each(|binding| {
@@ -24,7 +55,7 @@ fn derive_debug(mut s: Structure) -> TokenStream {
         TokenStream::new()
     };
     s.gen_impl(quote! {
-        gen impl ::core::fmt::Debug for @Self {
+        gen impl ::core::fmt::Debug for @Self #where_clause {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match self {
                     #(#format)*
@@ -33,6 +64,31 @@ fn derive_debug(mut s: Structure) -> TokenStream {
             }
         }
     })
+}
+
+fn add_bounds(s: &Structure, mut f: impl FnMut(Type)) {
+    let mut tys = vec![];
+    for attr in &s.ast().attrs {
+        if attr.path == parse_quote!(bounds) {
+            let meta: TypeList = parse2(attr.tokens.clone()).unwrap();
+            for ty in meta.list {
+                tys.push(ty);
+            }
+        }
+    }
+
+    if tys.is_empty() {
+        tys = s
+            .variants()
+            .iter()
+            .flat_map(|variant| variant.bindings().iter())
+            .map(|binding| binding.ast().ty.clone())
+            .collect();
+    }
+
+    for ty in tys {
+        f(ty);
+    }
 }
 
 fn derive(mut s: Structure) -> TokenStream {
@@ -71,25 +127,25 @@ fn derive(mut s: Structure) -> TokenStream {
         let mut bits = None;
         let mut first_field = None;
         let mut size = 0;
-        let mut predicates: Vec<WherePredicate> = vec![];
+        let mut write_where_clause: WhereClause = parse_quote!(where);
+        let mut read_where_clause: WhereClause = parse_quote!(where);
         let mut i_ty = quote! { u8 };
-        for variant in s.variants() {
-            for binding in variant.bindings() {
-                let ty = &binding.ast().ty;
-                predicates.push(parse_quote! {
-                    #ty: Unpin + mincodec::MinCodec
-                });
-                predicates.push(parse_quote! {
-                    <#ty as mincodec::MinCodecWrite>::Serialize: Unpin
-                });
-                predicates.push(parse_quote! {
-                    <#ty as mincodec::MinCodecRead>::Deserialize: Unpin
-                });
-            }
-        }
-        for predicate in &predicates {
-            s.add_where_predicate(predicate.clone());
-        }
+
+        add_bounds(&s, |ty| {
+            write_where_clause.predicates.push(parse_quote! {
+                #ty: Unpin + mincodec::MinCodec
+            });
+            read_where_clause.predicates.push(parse_quote! {
+                #ty: Unpin + mincodec::MinCodec
+            });
+            write_where_clause.predicates.push(parse_quote! {
+                <#ty as mincodec::MinCodecWrite>::Serialize: Unpin
+            });
+            read_where_clause.predicates.push(parse_quote! {
+                <#ty as mincodec::MinCodecRead>::Deserialize: Unpin
+            });
+        });
+
         let determinant = if len > 1 {
             let b = (len as f64).log2().ceil() as usize;
             if b >= 8 {
@@ -396,35 +452,31 @@ fn derive(mut s: Structure) -> TokenStream {
         });
         let name = &s.ast().ident;
         let (impl_gen, ty_gen, where_gen) = &mut s.ast().generics.split_for_impl();
-        let mut where_gen = where_gen.cloned();
+        if let Some(clause) = where_gen {
+            for predicate in &clause.predicates {
+                write_where_clause.predicates.push(predicate.clone());
+                read_where_clause.predicates.push(predicate.clone());
+            }
+        }
         let ser_message = format!(
             "derived Serialize for {} polled after completion",
             s.ast().ident
         );
-        if let Some(where_gen) = &mut where_gen {
-            for predicate in predicates {
-                where_gen.predicates.push(predicate);
-            }
-        } else {
-            where_gen = Some(WhereClause {
-                predicates: predicates.into_iter().collect(),
-                where_token: Token![where](Span::call_site()),
-            })
-        }
+
         let vis = &s.ast().vis;
         let mut stream = s.gen_impl(quote! {
             extern crate mincodec;
 
-            #vis enum _DERIVE_Serialize #impl_gen #where_gen {
+            #vis enum _DERIVE_Serialize #impl_gen #write_where_clause {
                 #(#serialize_variants,)*
             }
 
             #[derive(::mincodec::FieldDebug)]
-            #vis enum _DERIVE_Error #impl_gen #where_gen {
+            #vis enum _DERIVE_Error #impl_gen #write_where_clause {
                 #(#[allow(non_camel_case_types)] #serialize_error_variants,)*
             }
 
-            impl #impl_gen mincodec::Serialize for _DERIVE_Serialize #ty_gen #where_gen {
+            impl #impl_gen mincodec::Serialize for _DERIVE_Serialize #ty_gen #write_where_clause {
                 type Error = _DERIVE_Error #ty_gen;
 
                 fn poll_serialize<B: mincodec::bitbuf::BitBufMut>(mut self: ::core::pin::Pin<&mut Self>, ctx: &mut ::core::task::Context, mut buf: B) -> mincodec::BufPoll<Result<(), Self::Error>> {
@@ -438,7 +490,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 }
             }
 
-            gen impl mincodec::MinCodecWrite for @Self {
+            gen impl mincodec::MinCodecWrite for @Self #write_where_clause {
                 type Serialize = _DERIVE_Serialize #ty_gen;
 
                 fn serialize(self) -> Self::Serialize {
@@ -470,16 +522,16 @@ fn derive(mut s: Structure) -> TokenStream {
         stream.extend(s.gen_impl(quote! {
             extern crate mincodec;
 
-            #vis enum _DERIVE_Deserialize #impl_gen #where_gen {
+            #vis enum _DERIVE_Deserialize #impl_gen #read_where_clause {
                 #(#deserialize_variants,)*
             }
 
             #[derive(::mincodec::FieldDebug)]
-            #vis enum _DERIVE_Error #impl_gen #where_gen {
+            #vis enum _DERIVE_Error #impl_gen #read_where_clause {
                 #(#[allow(non_camel_case_types)] #deserialize_error_variants,)*
             }
 
-            impl #impl_gen mincodec::Deserialize for _DERIVE_Deserialize #ty_gen #where_gen {
+            impl #impl_gen mincodec::Deserialize for _DERIVE_Deserialize #ty_gen #read_where_clause {
                 type Target = #name #ty_gen;
                 type Error = _DERIVE_Error #ty_gen;
 
@@ -494,7 +546,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 }
             }
 
-            gen impl mincodec::MinCodecRead for @Self {
+            gen impl mincodec::MinCodecRead for @Self #read_where_clause {
                 type Deserialize = _DERIVE_Deserialize #ty_gen;
 
                 fn deserialize() -> Self::Deserialize {

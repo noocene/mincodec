@@ -41,6 +41,7 @@ use core::{
     task::{Context, Poll},
 };
 use core_futures_io::{AsyncRead, AsyncWrite};
+use pin_project::pin_project;
 
 #[doc(hidden)]
 pub use void::Void;
@@ -650,14 +651,14 @@ where
 /// Unlike serialization, the deserializer is required to specify the target type and, of course, perform any conversion necessary
 /// to translate to that resultant type. This helper retains the closure provided and translates after deserialization is complete, abstracting
 /// over the additional error that could result from the final conversion.
+#[pin_project]
 pub struct MapDeserialize<E, T: Deserialize, U, F: FnMut(T::Target) -> Result<U, E>> {
     map: F,
+    #[pin]
     deser: T,
 }
 
-impl<E, T: Unpin + Deserialize, U, F: Unpin + FnMut(T::Target) -> Result<U, E>>
-    MapDeserialize<E, T, U, F>
-{
+impl<E, T: Deserialize, U, F: FnMut(T::Target) -> Result<U, E>> MapDeserialize<E, T, U, F> {
     /// Creates a new `MapDeserialize`. The provided closure is used to convert from the deserialization type of the underlying extant deserializer to the target type.
     pub fn new<R: MinCodecRead<Deserialize = T>>(map: F) -> Self
     where
@@ -679,22 +680,22 @@ pub enum MapDeserializeError<T, U> {
     Deserialize(U),
 }
 
-impl<E, T: Unpin + Deserialize, U, F: Unpin + FnMut(T::Target) -> Result<U, E>> Deserialize
+impl<E, T: Deserialize, U, F: FnMut(T::Target) -> Result<U, E>> Deserialize
     for MapDeserialize<E, T, U, F>
 {
     type Target = U;
     type Error = MapDeserializeError<E, T::Error>;
 
     fn poll_deserialize<B: BitBuf>(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
-        let this = &mut *self;
-        buf_ok!(buf_try!((this.map)(buf_try!(buf_ready!(Pin::new(
-            &mut this.deser
-        )
-        .poll_deserialize(ctx, buf))
+        let this = self.project();
+
+        buf_ok!(buf_try!((this.map)(buf_try!(buf_ready!(this
+            .deser
+            .poll_deserialize(ctx, buf))
         .map_err(MapDeserializeError::Deserialize)))
         .map_err(MapDeserializeError::Map)))
     }

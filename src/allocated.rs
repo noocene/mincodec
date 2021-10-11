@@ -1,6 +1,6 @@
 use crate::{
-    buf_ok, buf_ready, buf_try, sufficient, BufPoll, Deserialize, MapDeserialize, MapSerialize,
-    MinCodecRead, MinCodecWrite, Serialize,
+    buf_ok, buf_ready, buf_try, sufficient, BufPoll, Deserialize, MinCodecRead, MinCodecWrite,
+    Serialize,
 };
 use alloc::{
     borrow::ToOwned,
@@ -12,6 +12,7 @@ use alloc::{
 use bitbuf::{BitBuf, BitBufMut, Drain, Fill};
 use bitbuf_vlq::{AsyncReadVlq, Vlq};
 use core::{convert::TryInto, mem::replace, pin::Pin, task::Context};
+use pin_project::pin_project;
 use void::Void;
 
 /// Wrapper around errors that occur while deserializing a `String`
@@ -292,31 +293,85 @@ where
     }
 }
 
-impl<T: MinCodecRead> MinCodecRead for Box<T>
-where
-    T::Deserialize: Unpin,
-{
-    type Deserialize = MapDeserialize<Void, T::Deserialize, Box<T>, fn(T) -> Result<Box<T>, Void>>;
+#[doc(hidden)]
+#[pin_project]
+pub struct BoxSerialize<T: MinCodecWrite> {
+    ser: Pin<Box<T::Serialize>>,
+}
 
-    fn deserialize() -> Self::Deserialize {
-        fn map<T>(item: T) -> Result<Box<T>, Void> {
-            Ok(Box::new(item))
+impl<T: MinCodecWrite> BoxSerialize<T> {
+    fn new(input: T) -> Self {
+        BoxSerialize {
+            ser: Box::pin(input.serialize()),
         }
-        MapDeserialize::new(map)
     }
 }
 
-impl<T: MinCodecWrite> MinCodecWrite for Box<T>
-where
-    T::Serialize: Unpin,
-{
-    type Serialize = MapSerialize<T, Void>;
+impl<T: MinCodecWrite> Serialize for BoxSerialize<T> {
+    type Error = Box<<T::Serialize as Serialize>::Error>;
+
+    fn poll_serialize<B: BitBufMut>(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: B,
+    ) -> BufPoll<Result<(), Self::Error>> {
+        let this = self.project();
+
+        buf_ok!(buf_try!(buf_ready!(this
+            .ser
+            .as_mut()
+            .poll_serialize(ctx, buf))
+        .map_err(Box::new)))
+    }
+}
+
+#[doc(hidden)]
+#[pin_project]
+pub struct BoxDeserialize<T: MinCodecRead> {
+    deser: Pin<Box<T::Deserialize>>,
+}
+
+impl<T: MinCodecRead> BoxDeserialize<T> {
+    fn new() -> Self {
+        BoxDeserialize {
+            deser: Box::pin(T::deserialize()),
+        }
+    }
+}
+
+impl<T: MinCodecRead> Deserialize for BoxDeserialize<T> {
+    type Target = Box<T>;
+    type Error = Box<<T::Deserialize as Deserialize>::Error>;
+
+    fn poll_deserialize<B: BitBuf>(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: B,
+    ) -> BufPoll<Result<Self::Target, Self::Error>> {
+        let this = self.project();
+
+        buf_ok!(buf_try!(buf_ready!(this
+            .deser
+            .as_mut()
+            .poll_deserialize(ctx, buf))
+        .map_err(Box::new)
+        .map(Box::new)))
+    }
+}
+
+impl<T: MinCodecRead> MinCodecRead for Box<T> {
+    type Deserialize = BoxDeserialize<T>;
+
+    fn deserialize() -> Self::Deserialize {
+        BoxDeserialize::new()
+    }
+}
+
+impl<T: MinCodecWrite> MinCodecWrite for Box<T> {
+    type Serialize = BoxSerialize<T>;
 
     fn serialize(self) -> Self::Serialize {
-        fn map<T>(item: Box<T>) -> Result<T, Void> {
-            Ok(*item)
-        }
-        MapSerialize::new(self, map)
+        BoxSerialize::new(*self)
     }
 }
 
