@@ -58,7 +58,7 @@ impl Deserialize for StringDeserialize {
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         _: &mut Context,
-        mut buf: B,
+        mut buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         loop {
@@ -107,7 +107,7 @@ impl Serialize for BytesSerialize {
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         _: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), Self::Error>> {
         sufficient!(self.0.drain_into(buf));
         buf_ok!(())
@@ -178,7 +178,7 @@ where
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        mut buf: B,
+        mut buf: &mut B,
     ) -> BufPoll<Result<(), <Self as Serialize>::Error>> {
         let this = &mut *self;
         loop {
@@ -264,7 +264,7 @@ where
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        mut buf: B,
+        mut buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         loop {
@@ -313,7 +313,7 @@ impl<T: MinCodecWrite> Serialize for BoxSerialize<T> {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), Self::Error>> {
         let this = self.project();
 
@@ -346,7 +346,7 @@ impl<T: MinCodecRead> Deserialize for BoxDeserialize<T> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = self.project();
 

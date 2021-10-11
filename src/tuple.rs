@@ -72,7 +72,7 @@ macro_rules! tuple_impls {
                 fn poll_serialize<B: BitBufMut>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    mut buf: B,
+                    mut buf: &mut B,
                 ) -> BufPoll<Result<(), Self::Error>> {
                     let this = &mut *self;
                     loop {
@@ -107,7 +107,7 @@ macro_rules! tuple_impls {
                 fn poll_deserialize<B: BitBuf>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    mut buf: B,
+                    mut buf: &mut B,
                 ) -> BufPoll<Result<($($name,)+), Self::Error>> {
                     let this = &mut *self;
                     loop {

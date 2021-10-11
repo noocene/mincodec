@@ -30,7 +30,7 @@ impl<T> Deserialize for EmptyCodec<T> {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: B,
+        _: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         buf_try!(Err(Empty))
     }
@@ -42,7 +42,7 @@ impl<T> Serialize for EmptyCodec<T> {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         _: &mut Context,
-        _: B,
+        _: &mut B,
     ) -> BufPoll<Result<(), Self::Error>> {
         panic!("attempted to serialize empty type")
     }

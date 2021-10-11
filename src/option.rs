@@ -28,7 +28,7 @@ where
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        mut buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), Self::Error>> {
         let this = &mut *self;
         loop {
@@ -94,7 +94,7 @@ where
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        mut buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = &mut *self;
         loop {

@@ -182,7 +182,7 @@ fn derive(mut s: Structure) -> TokenStream {
             let drain = if bits.is_some() {
                 ser_state_arms.push(quote! {
                     0 => {
-                        mincodec::sufficient!(_0.drain_into(&mut buf));
+                        mincodec::sufficient!(_0.drain_into(&mut *buf));
                         *idx += 1;
                     }
                 });
@@ -237,13 +237,13 @@ fn derive(mut s: Structure) -> TokenStream {
                         let deser_idx = deser_idx as u8;
                         ser_state_arms.push(quote! {
                             #ser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
                         deser_state_arms.push(quote! {
                             #deser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
@@ -253,13 +253,13 @@ fn derive(mut s: Structure) -> TokenStream {
                         let deser_idx = deser_idx as u16;
                         ser_state_arms.push(quote! {
                             #ser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
                         deser_state_arms.push(quote! {
                             #deser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
@@ -269,13 +269,13 @@ fn derive(mut s: Structure) -> TokenStream {
                         let deser_idx = deser_idx as u32;
                         ser_state_arms.push(quote! {
                             #ser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_ser).poll_serialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
                         deser_state_arms.push(quote! {
                             #deser_idx => {
-                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut buf)).map_err(_DERIVE_Error::#ident));
+                                mincodec::buf_try!(mincodec::buf_ready!(::core::pin::Pin::new(#b_deser).poll_deserialize(ctx, &mut *buf)).map_err(_DERIVE_Error::#ident));
                                 *idx += 1;
                             }
                         });
@@ -418,7 +418,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 if bits.is_some() {
                     ser_arms.push(quote! {
                         _DERIVE_Serialize::#ident(_0) => {
-                            mincodec::sufficient!(_0.drain_into(&mut buf));
+                            mincodec::sufficient!(_0.drain_into(&mut *buf));
                             *this = _DERIVE_Serialize::__DERIVE_Complete;
                             return mincodec::buf_ok!(());
                         }
@@ -479,7 +479,7 @@ fn derive(mut s: Structure) -> TokenStream {
             impl #impl_gen mincodec::Serialize for _DERIVE_Serialize #ty_gen #write_where_clause {
                 type Error = _DERIVE_Error #ty_gen;
 
-                fn poll_serialize<B: mincodec::bitbuf::BitBufMut>(mut self: ::core::pin::Pin<&mut Self>, ctx: &mut ::core::task::Context, mut buf: B) -> mincodec::BufPoll<Result<(), Self::Error>> {
+                fn poll_serialize<B: mincodec::bitbuf::BitBufMut>(mut self: ::core::pin::Pin<&mut Self>, ctx: &mut ::core::task::Context, mut buf: &mut B) -> mincodec::BufPoll<Result<(), Self::Error>> {
                     let this = &mut *self;
                     loop {
                         match this {
@@ -504,7 +504,7 @@ fn derive(mut s: Structure) -> TokenStream {
             let bytes = bits.unwrap() / 8 + 1;
             quote! {
                 _DERIVE_Deserialize::_DERIVE_Determinant(determinant) => {
-                    mincodec::sufficient!(determinant.fill_from(&mut buf));
+                    mincodec::sufficient!(determinant.fill_from(&mut *buf));
                     let mut data = ::core::mem::replace(determinant, mincodec::bitbuf::CappedFill::new([0u8; #bytes], 0).unwrap()).into_inner();
                     for byte in &mut data {
                         *byte = byte.reverse_bits();
@@ -535,7 +535,7 @@ fn derive(mut s: Structure) -> TokenStream {
                 type Target = #name #ty_gen;
                 type Error = _DERIVE_Error #ty_gen;
 
-                fn poll_deserialize<B: mincodec::bitbuf::BitBuf>(mut self: ::core::pin::Pin<&mut Self>, ctx: &mut ::core::task::Context, mut buf: B) -> mincodec::BufPoll<Result<Self::Target, Self::Error>> {
+                fn poll_deserialize<B: mincodec::bitbuf::BitBuf>(mut self: ::core::pin::Pin<&mut Self>, ctx: &mut ::core::task::Context, mut buf: &mut B) -> mincodec::BufPoll<Result<Self::Target, Self::Error>> {
                     let this = &mut *self;
                     loop {
                         match this {

@@ -25,7 +25,7 @@ macro_rules! array_impl {
                 fn poll_deserialize<B: BitBuf>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    mut buf: B,
+                    mut buf: &mut B,
                 ) -> BufPoll<Result<Self::Target, Self::Error>> {
                     let this = &mut *self;
                     if this.data.len() >= $len {
@@ -75,7 +75,7 @@ macro_rules! array_impl {
                 fn poll_serialize<B: BitBufMut>(
                     mut self: Pin<&mut Self>,
                     ctx: &mut Context,
-                    mut buf: B,
+                    mut buf: &mut B,
                 ) -> BufPoll<Result<(), Self::Error>> {
                     let this = &mut *self;
                     loop {

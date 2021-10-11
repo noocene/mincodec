@@ -125,7 +125,7 @@ pub trait Serialize {
     fn poll_serialize<B: BitBufMut>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), Self::Error>>;
 }
 
@@ -141,7 +141,7 @@ pub trait Deserialize: Sized {
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>>;
 }
 
@@ -191,7 +191,7 @@ where
     fn poll_deserialize<B: BitBuf>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), <T::Deserialize as Deserialize>::Error>> {
         let this = &mut *self;
         loop {
@@ -325,13 +325,13 @@ where
 /// Provides utility methods for `MinCodecRead` types
 pub trait MinCodecReadExt: MinCodecRead {
     /// Deserialize an instance from the provided buffer, failing if the buffer contains insufficient data
-    fn read_immediate<B: BitBuf>(buf: B) -> ReadImmediate<Self, B>;
+    fn read_immediate<B: BitBuf>(buf: &mut B) -> ReadImmediate<Self, &'_ mut B>;
     /// Deserialize an instance from the provided `AsyncRead`
     fn read_async_bytes<R: AsyncRead>(buf: R) -> AsyncReader<R, Self>;
 }
 
 impl<T: MinCodecRead> MinCodecReadExt for T {
-    fn read_immediate<B: BitBuf>(buf: B) -> ReadImmediate<Self, B> {
+    fn read_immediate<B: BitBuf>(buf: &mut B) -> ReadImmediate<Self, &'_ mut B> {
         ReadImmediate(T::deserialize(), buf, false)
     }
     fn read_async_bytes<R: AsyncRead>(buf: R) -> AsyncReader<R, Self> {
@@ -342,13 +342,13 @@ impl<T: MinCodecRead> MinCodecReadExt for T {
 /// Provides utility methods for `MinCodecWrite` types
 pub trait MinCodecWriteExt: MinCodecWrite {
     /// Serialize into the provided buffer, failing if the buffer is too small
-    fn write_immediate<B: BitBufMut>(self, buf: B) -> WriteImmediate<Self, B>;
+    fn write_immediate<B: BitBufMut>(self, buf: &mut B) -> WriteImmediate<Self, &'_ mut B>;
     /// Serialize into the provided `AsyncRead`
     fn write_async_bytes<W: AsyncWrite>(self, buf: W) -> AsyncWriter<W, Self>;
 }
 
 impl<T: MinCodecWrite> MinCodecWriteExt for T {
-    fn write_immediate<B: BitBufMut>(self, buf: B) -> WriteImmediate<Self, B> {
+    fn write_immediate<B: BitBufMut>(self, buf: &mut B) -> WriteImmediate<Self, &'_ mut B> {
         WriteImmediate(self.serialize(), buf, false)
     }
     fn write_async_bytes<W: AsyncWrite>(self, buf: W) -> AsyncWriter<W, Self> {
@@ -689,7 +689,7 @@ impl<E, T: Deserialize, U, F: FnMut(T::Target) -> Result<U, E>> Deserialize
     fn poll_deserialize<B: BitBuf>(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<Self::Target, Self::Error>> {
         let this = self.project();
 
@@ -748,7 +748,7 @@ where
     fn poll_serialize<B: BitBufMut>(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: B,
+        buf: &mut B,
     ) -> BufPoll<Result<(), Self::Error>> {
         let this = &mut *self;
         match &mut this.state {
