@@ -370,11 +370,14 @@ enum AsyncReaderState {
 const ASYNC_READER_BUF_SIZE: usize = 1024;
 
 /// Helper for deserializing a `MinCodecRead` type from a `core_futures_io::AsyncRead` bytestream
+#[pin_project]
 pub struct AsyncReader<T: AsyncRead, U: MinCodecRead> {
+    #[pin]
     reader: T,
     buffer: [u8; ASYNC_READER_BUF_SIZE],
     cursor: usize,
     last_byte: usize,
+    #[pin]
     deserializer: U::Deserialize,
     state: AsyncReaderState,
 }
@@ -388,9 +391,12 @@ enum AsyncWriterState {
 const ASYNC_WRITER_BUF_SIZE: usize = 1024;
 
 /// Helper for serializing a `MinCodecWrite` type into a `core_futures_io::AsyncWrite` bytestream
+#[pin_project]
 pub struct AsyncWriter<T: AsyncWrite, U: MinCodecWrite> {
+    #[pin]
     writer: T,
     buffer: [u8; ASYNC_WRITER_BUF_SIZE],
+    #[pin]
     serializer: U::Serialize,
     cursor: usize,
     done: bool,
@@ -503,59 +509,57 @@ pub enum AsyncReaderError<T, U> {
     Deserialize(U),
 }
 
-impl<T: AsyncRead + Unpin, U: MinCodecRead> Future for AsyncReader<T, U>
-where
-    U::Deserialize: Unpin,
-{
+impl<T: AsyncRead, U: MinCodecRead> Future for AsyncReader<T, U> {
     type Output = Result<U, AsyncReaderError<T::Error, <U::Deserialize as Deserialize>::Error>>;
 
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        let mut this = self.project();
+
         loop {
-            match self.state {
+            match &this.state {
                 AsyncReaderState::Deserialize => {
-                    let this = &mut *self;
-                    let mut buf = BitSlice::new(&this.buffer[..this.last_byte]);
-                    buf.advance(this.cursor).unwrap();
-                    let poll = Pin::new(&mut this.deserializer).poll_deserialize(ctx, &mut buf);
+                    let mut buf = BitSlice::new(&this.buffer[..*this.last_byte]);
+                    buf.advance(*this.cursor).unwrap();
+                    let poll = this.deserializer.as_mut().poll_deserialize(ctx, &mut buf);
                     return match poll {
                         BufPoll::Pending => Poll::Pending,
                         BufPoll::Ready(item) => {
-                            this.cursor = buf.len();
-                            this.cursor = this.cursor + 7 & !7;
-                            this.state = AsyncReaderState::Complete;
+                            *this.cursor = buf.len();
+                            *this.cursor = *this.cursor + 7 & !7;
+                            *this.state = AsyncReaderState::Complete;
                             Poll::Ready(item.map_err(AsyncReaderError::Deserialize))
                         }
                         BufPoll::Insufficient => {
-                            this.cursor = buf.len();
-                            this.state = AsyncReaderState::Reading;
+                            *this.cursor = buf.len();
+                            *this.state = AsyncReaderState::Reading;
                             continue;
                         }
                     };
                 }
                 AsyncReaderState::Reading => {
-                    let this = &mut *self;
-                    let cursor_bytes = this.cursor / 8;
+                    let cursor_bytes = *this.cursor / 8;
                     let mut read_buffer = [0u8; ASYNC_READER_BUF_SIZE];
-                    return match Pin::new(&mut this.reader).poll_read(
+                    return match this.reader.as_mut().poll_read(
                         ctx,
-                        &mut read_buffer[..ASYNC_READER_BUF_SIZE - (this.last_byte - cursor_bytes)],
+                        &mut read_buffer
+                            [..ASYNC_READER_BUF_SIZE - (*this.last_byte - cursor_bytes)],
                     ) {
                         Poll::Pending => Poll::Pending,
                         Poll::Ready(data) => Poll::Ready(match data {
                             Err(e) => Err(AsyncReaderError::Read(e)),
                             Ok(size) => {
-                                this.buffer.copy_within(cursor_bytes..this.last_byte, 0);
-                                this.cursor &= 7;
-                                let mut deserialize_buf = BitSliceMut::new(&mut this.buffer);
-                                let first_byte = this.last_byte - cursor_bytes;
+                                this.buffer.copy_within(cursor_bytes..*this.last_byte, 0);
+                                *this.cursor &= 7;
+                                let mut deserialize_buf = BitSliceMut::new(&mut *this.buffer);
+                                let first_byte = *this.last_byte - cursor_bytes;
                                 deserialize_buf
-                                    .advance(first_byte * 8 + this.cursor)
+                                    .advance(first_byte * 8 + *this.cursor)
                                     .expect("could not advance by cursor remainder");
                                 deserialize_buf
                                     .write_aligned_all(&read_buffer[..size])
                                     .unwrap();
-                                this.last_byte = first_byte + size;
-                                this.state = AsyncReaderState::Deserialize;
+                                *this.last_byte = first_byte + size;
+                                *this.state = AsyncReaderState::Deserialize;
                                 continue;
                             }
                         }),
@@ -576,40 +580,42 @@ pub enum AsyncWriterError<T, U> {
     Serialize(U),
 }
 
-impl<T: AsyncWrite + Unpin, U: MinCodecWrite> Future for AsyncWriter<T, U>
-where
-    U::Serialize: Unpin,
-{
+impl<T: AsyncWrite, U: MinCodecWrite> Future for AsyncWriter<T, U> {
     type Output = Result<(), AsyncWriterError<T::WriteError, <U::Serialize as Serialize>::Error>>;
 
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        let mut this = self.project();
+
         loop {
-            match self.state {
+            match &*this.state {
                 AsyncWriterState::Writing => {
-                    let this = &mut *self;
                     let mut l = 0u8;
-                    let re = this.cursor & 7;
-                    this.cursor /= 8;
+                    let re = *this.cursor & 7;
+                    *this.cursor /= 8;
                     if re != 0 {
-                        if this.done {
-                            this.cursor += 1;
+                        if *this.done {
+                            *this.cursor += 1;
                         } else {
-                            l = this.buffer[this.cursor + 1];
+                            l = this.buffer[*this.cursor + 1];
                         }
                     }
-                    match Pin::new(&mut this.writer).poll_write(ctx, &this.buffer[..this.cursor]) {
+                    match this
+                        .writer
+                        .as_mut()
+                        .poll_write(ctx, &this.buffer[..*this.cursor])
+                    {
                         Poll::Pending => return Poll::Pending,
                         Poll::Ready(data) => match data {
                             Ok(size) => {
-                                this.cursor -= size;
-                                if this.cursor == 0 {
-                                    if this.done {
-                                        this.state = AsyncWriterState::Complete;
+                                *this.cursor -= size;
+                                if *this.cursor == 0 {
+                                    if *this.done {
+                                        *this.state = AsyncWriterState::Complete;
                                         return Poll::Ready(Ok(()));
                                     } else {
-                                        this.cursor = re;
+                                        *this.cursor = re;
                                         this.buffer[0] = l;
-                                        this.state = AsyncWriterState::Serialize;
+                                        *this.state = AsyncWriterState::Serialize;
                                     }
                                     continue;
                                 }
@@ -619,22 +625,21 @@ where
                     }
                 }
                 AsyncWriterState::Serialize => {
-                    let this = &mut *self;
-                    let mut buf = BitSliceMut::new(&mut this.buffer);
-                    buf.advance(this.cursor).unwrap();
-                    let poll = Pin::new(&mut this.serializer).poll_serialize(ctx, &mut buf);
+                    let mut buf = BitSliceMut::new(&mut *this.buffer);
+                    buf.advance(*this.cursor).unwrap();
+                    let poll = this.serializer.as_mut().poll_serialize(ctx, &mut buf);
                     return match poll {
                         BufPoll::Pending => Poll::Pending,
                         BufPoll::Ready(item) => {
-                            this.cursor += buf.len();
-                            this.state = AsyncWriterState::Writing;
-                            this.done = true;
+                            *this.cursor += buf.len();
+                            *this.state = AsyncWriterState::Writing;
+                            *this.done = true;
                             item.map_err(AsyncWriterError::Serialize)?;
                             continue;
                         }
                         BufPoll::Insufficient => {
-                            this.cursor += buf.len();
-                            this.state = AsyncWriterState::Writing;
+                            *this.cursor += buf.len();
+                            *this.state = AsyncWriterState::Writing;
                             continue;
                         }
                     };
