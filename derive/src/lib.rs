@@ -22,7 +22,7 @@ impl Parse for TypeList {
 }
 
 decl_derive!([MinCodec, attributes(bounds)] => derive);
-decl_derive!([FieldDebug] => derive_debug);
+decl_derive!([FieldDebug, attributes(bounds)] => derive_debug);
 
 fn derive_debug(mut s: Structure) -> TokenStream {
     let mut where_clause: WhereClause = parse_quote!(where);
@@ -33,11 +33,7 @@ fn derive_debug(mut s: Structure) -> TokenStream {
         });
     });
 
-    s.add_bounds(if where_clause.predicates.is_empty() {
-        AddBounds::Fields
-    } else {
-        AddBounds::None
-    });
+    s.add_bounds(AddBounds::None);
 
     let mut format = vec![];
     for variant in s.variants() {
@@ -66,10 +62,14 @@ fn derive_debug(mut s: Structure) -> TokenStream {
     })
 }
 
-fn add_bounds(s: &Structure, mut f: impl FnMut(Type)) {
+fn add_bounds(s: &Structure, mut f: impl FnMut(Type)) -> bool {
     let mut tys = vec![];
+
+    let mut has_explicit_bounds = false;
+
     for attr in &s.ast().attrs {
         if attr.path == parse_quote!(bounds) {
+            has_explicit_bounds = true;
             let meta: TypeList = parse2(attr.tokens.clone()).unwrap();
             for ty in meta.list {
                 tys.push(ty);
@@ -77,7 +77,7 @@ fn add_bounds(s: &Structure, mut f: impl FnMut(Type)) {
         }
     }
 
-    if tys.is_empty() {
+    if !has_explicit_bounds {
         tys = s
             .variants()
             .iter()
@@ -89,6 +89,8 @@ fn add_bounds(s: &Structure, mut f: impl FnMut(Type)) {
     for ty in tys {
         f(ty);
     }
+
+    has_explicit_bounds
 }
 
 fn derive(mut s: Structure) -> TokenStream {
@@ -130,6 +132,13 @@ fn derive(mut s: Structure) -> TokenStream {
         let mut write_where_clause: WhereClause = parse_quote!(where);
         let mut read_where_clause: WhereClause = parse_quote!(where);
         let mut i_ty = quote! { u8 };
+
+        let mut err_attrs = vec![];
+        for attr in &s.ast().attrs {
+            if attr.path == parse_quote!(bounds) {
+                err_attrs.push(attr.clone());
+            }
+        }
 
         add_bounds(&s, |ty| {
             write_where_clause.predicates.push(parse_quote! {
@@ -472,6 +481,7 @@ fn derive(mut s: Structure) -> TokenStream {
             }
 
             #[derive(::mincodec::FieldDebug)]
+            #(#err_attrs)*
             #vis enum _DERIVE_Error #impl_gen #write_where_clause {
                 #(#[allow(non_camel_case_types)] #serialize_error_variants,)*
             }
@@ -527,6 +537,7 @@ fn derive(mut s: Structure) -> TokenStream {
             }
 
             #[derive(::mincodec::FieldDebug)]
+            #(#err_attrs)*
             #vis enum _DERIVE_Error #impl_gen #read_where_clause {
                 #(#[allow(non_camel_case_types)] #deserialize_error_variants,)*
             }
